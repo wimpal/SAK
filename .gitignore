@@ -1,0 +1,33 @@
+# Dependencies & build
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+
+# Secrets
+.env
+.env.local
+.env.*.local
+
+# Bundled sidecars / runtimes (download via setup scripts)
+src-tauri/binaries/*
+!src-tauri/binaries/.gitkeep
+src-tauri/resources/calibre/*
+!src-tauri/resources/calibre/README.md
+
+# Accidental local Calibre install at repo root
+/Calibre Portable/
+
+# Logs & caches
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+*.tsbuildinfo
+
+# Editor / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*~

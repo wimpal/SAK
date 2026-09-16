@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+@theme {
+  /* Swiss Army Knife red — small accents only, the UI stays steel-dark */
+  --color-brand: #da291c;
+  --color-brand-soft: #f1665c;
+  --color-brand-deep: #7f1d14;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-zinc-950 text-zinc-100 antialiased;
+}
+
+::selection {
+  background: rgb(218 41 28 / 0.35);
+}
