@@ -2,7 +2,14 @@ import { Link } from "react-router-dom";
 import { FfmpegStatus } from "../ui/FfmpegStatus";
 import { tools, type ToolCategory } from "./registry";
 
-const categories: ToolCategory[] = ["Video", "Files", "Image", "PDF", "Audio"];
+const categories: ToolCategory[] = [
+  "Video",
+  "Files",
+  "Image",
+  "PDF",
+  "Audio",
+  "Utility",
+];
 
 export function Home() {
   return (

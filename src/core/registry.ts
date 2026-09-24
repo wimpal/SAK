@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   AudioLines,
   BookOpen,
+  Calculator,
   Crop,
   FileCode,
   FilePen,
@@ -15,7 +16,13 @@ import {
 } from "lucide-react";
 
 export type ToolStatus = "available" | "planned";
-export type ToolCategory = "Video" | "Files" | "Image" | "PDF" | "Audio";
+export type ToolCategory =
+  | "Video"
+  | "Files"
+  | "Image"
+  | "PDF"
+  | "Audio"
+  | "Utility";
 
 export interface ToolMeta {
   id: string;
@@ -146,6 +153,16 @@ export const tools: ToolMeta[] = [
     icon: Music,
     path: "/music-downloader",
     category: "Audio",
+    status: "available",
+  },
+  {
+    id: "craft-calculator",
+    name: "Craft Calculator",
+    description:
+      "Maximize crafts per inventory trip from a recipe, stack size, and reserved slots.",
+    icon: Calculator,
+    path: "/craft-calculator",
+    category: "Utility",
     status: "available",
   },
 ];

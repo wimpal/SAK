@@ -16,6 +16,7 @@ const PdfTools = lazy(() => import("../tools/pdf-tools"));
 const PdfToEpub = lazy(() => import("../tools/pdf-to-epub"));
 const PdfToMarkdown = lazy(() => import("../tools/pdf-to-markdown"));
 const MusicDownloader = lazy(() => import("../tools/music-downloader"));
+const CraftCalculator = lazy(() => import("../tools/craft-calculator"));
 
 function toolRoute(id: string, Component: React.ComponentType): RouteObject {
   const tool = getTool(id);
@@ -45,4 +46,5 @@ export const router = createHashRouter([
   toolRoute("pdf-to-epub", PdfToEpub),
   toolRoute("pdf-to-markdown", PdfToMarkdown),
   toolRoute("music-downloader", MusicDownloader),
+  toolRoute("craft-calculator", CraftCalculator),
 ]);

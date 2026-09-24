@@ -212,6 +212,13 @@ No network, no accounts; pure in-browser transforms.
 - Batch file mode (`.txt` in → converted sibling out)
 - Custom user-defined character maps
 
+### 10. Craft calculator ✅
+Bank-trip crafting math for games (e.g. smithing): generic multi-ingredient recipe,
+inventory slots, stack size, and reserved empty slots for the product. Live-computes
+max crafts and withdraw amounts (materials only; reserved slot for output). Also
+scales a recipe from “I have N of ingredient X.” Pure frontend — no native code.
+Defaults: 29 slots, 25/stack, 1 reserved; sample Ore+Coal→Bar.
+
 ### Future tool ideas (parking lot)
 - Image converter / compressor (format conversion beyond crop)
 - Duplicate file finder
