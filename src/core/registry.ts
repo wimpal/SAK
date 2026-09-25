@@ -4,6 +4,7 @@ import {
   BookOpen,
   Calculator,
   Crop,
+  Download,
   FileCode,
   FilePen,
   FileText,
@@ -153,6 +154,15 @@ export const tools: ToolMeta[] = [
     icon: Music,
     path: "/music-downloader",
     category: "Audio",
+    status: "available",
+  },
+  {
+    id: "youtube-downloader",
+    name: "YouTube Downloader",
+    description: "Paste a YouTube URL and download the video as MP4.",
+    icon: Download,
+    path: "/youtube-downloader",
+    category: "Video",
     status: "available",
   },
   {

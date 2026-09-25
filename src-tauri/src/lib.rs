@@ -12,6 +12,7 @@ mod epub_cleanup;
 mod ffmpeg;
 mod music;
 mod spotify;
+mod youtube;
 mod ytdlp;
 
 const ALLOWED_ICO_SIZES: [u32; 9] = [16, 20, 24, 32, 40, 48, 64, 128, 256];
@@ -483,6 +484,49 @@ fn cancel_music_job(
     job_id: String,
 ) -> Result<(), String> {
     ytdlp::cancel_job(&state, &job_id)
+}
+
+/// Resolve a single YouTube video URL into metadata for the video downloader.
+#[tauri::command]
+async fn youtube_resolve(
+    app: tauri::AppHandle,
+    url: String,
+) -> Result<youtube::YoutubeResolveResult, String> {
+    youtube::resolve_youtube_video(&app, url).await
+}
+
+/// Download a YouTube video as MP4 via yt-dlp + FFmpeg.
+#[tauri::command]
+async fn youtube_download(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ytdlp::YtdlpState>,
+    job_id: String,
+    url: String,
+    output_dir: String,
+    title_hint: Option<String>,
+    max_height: Option<u32>,
+    write_subs: Option<bool>,
+) -> Result<youtube::YoutubeDownloadResult, String> {
+    youtube::run_youtube_download(
+        &app,
+        &state,
+        job_id,
+        url,
+        output_dir,
+        title_hint,
+        max_height,
+        write_subs,
+    )
+    .await
+}
+
+/// Cancel the active YouTube video download job.
+#[tauri::command]
+fn cancel_youtube_job(
+    state: tauri::State<'_, ytdlp::YtdlpState>,
+    job_id: String,
+) -> Result<(), String> {
+    youtube::cancel_youtube_job(&state, &job_id)
 }
 
 /// Convert a PDF to reflowable EPUB via bundled Calibre ebook-convert.
@@ -1967,6 +2011,9 @@ pub fn run() {
             music_resolve,
             music_download,
             cancel_music_job,
+            youtube_resolve,
+            youtube_download,
+            cancel_youtube_job,
             reveal_in_explorer,
             trash_file,
             list_dir_files,

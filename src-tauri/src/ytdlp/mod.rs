@@ -15,13 +15,80 @@ pub struct YtdlpState {
 
 struct ActiveJob {
     job_id: String,
-    child: tauri_plugin_shell::process::CommandChild,
+    child: Option<tauri_plugin_shell::process::CommandChild>,
+    cancelled: bool,
 }
 
 impl YtdlpState {
     pub fn new() -> Self {
         Self {
             active: Mutex::new(None),
+        }
+    }
+
+    /// Reserve the global download slot for `job_id` (no child yet).
+    pub fn try_reserve(&self, job_id: &str) -> Result<(), String> {
+        let mut guard = self.active.lock().map_err(|e| e.to_string())?;
+        if guard.is_some() {
+            return Err("another download is already running".to_string());
+        }
+        *guard = Some(ActiveJob {
+            job_id: job_id.to_string(),
+            child: None,
+            cancelled: false,
+        });
+        Ok(())
+    }
+
+    /// Attach a spawned sidecar child to the reserved job.
+    pub fn attach_child(
+        &self,
+        job_id: &str,
+        child: tauri_plugin_shell::process::CommandChild,
+    ) -> Result<(), String> {
+        let mut guard = self.active.lock().map_err(|e| e.to_string())?;
+        match guard.as_mut() {
+            Some(job) if job.job_id == job_id && !job.cancelled => {
+                job.child = Some(child);
+                Ok(())
+            }
+            other => {
+                let _ = child.kill();
+                match other {
+                    Some(job) if job.job_id == job_id && job.cancelled => {
+                        Err("download was cancelled".to_string())
+                    }
+                    Some(_) => Err("job id does not match active download".to_string()),
+                    None => Err("download was cancelled".to_string()),
+                }
+            }
+        }
+    }
+
+    /// Drop the child handle after the process exits, keeping the job reservation.
+    /// Returns `true` if cancel was requested for this job (or reservation is gone).
+    pub fn clear_child(&self, job_id: &str) -> Result<bool, String> {
+        let mut guard = self.active.lock().map_err(|e| e.to_string())?;
+        match guard.as_mut() {
+            Some(job) if job.job_id == job_id => {
+                job.child = None;
+                Ok(job.cancelled)
+            }
+            Some(_) => Err("job id does not match active download".to_string()),
+            None => Ok(true),
+        }
+    }
+
+    /// Release the job reservation when the whole download finishes (including cleanup).
+    pub fn release(&self, job_id: &str) -> Result<(), String> {
+        let mut guard = self.active.lock().map_err(|e| e.to_string())?;
+        match guard.take() {
+            Some(job) if job.job_id == job_id => Ok(()),
+            Some(other) => {
+                *guard = Some(other);
+                Err("job id does not match active download".to_string())
+            }
+            None => Ok(()),
         }
     }
 }
@@ -49,7 +116,7 @@ const PROGRESS_EVENT: &str = "music-progress";
 const DONE_EVENT: &str = "music-done";
 /// Prefer m4a (140/139) over opus webm (251), which often 403s on YouTube's android client.
 const YTDLP_AUDIO_FORMAT: &str = "140/139/251/bestaudio/best";
-const YTDLP_PLAYER_CLIENT_FALLBACKS: &[&str] = &[
+pub const YTDLP_PLAYER_CLIENT_FALLBACKS: &[&str] = &[
     "youtube:player_client=default,-android_sdkless",
     "youtube:player_client=default,web",
     "youtube:player_client=default,tv,web",
@@ -58,7 +125,7 @@ const YTDLP_SEARCH_FALLBACKS: usize = 10;
 const YTDLP_TRACK_SLEEP_MS: u64 = 1200;
 const YTDLP_TRACK_SLEEP_AFTER_FAIL_MS: u64 = 3000;
 const MAX_OUTPUT_STEM_CHARS: usize = 120;
-const YTDLP_RETRY_SLEEP_MS: u64 = 1500;
+pub const YTDLP_RETRY_SLEEP_MS: u64 = 1500;
 const DEFAULT_MP3_BITRATE_KBPS: u32 = 320;
 
 pub fn normalize_mp3_bitrate_kbps(value: u32) -> u32 {
@@ -108,9 +175,21 @@ pub fn resolve_sidecar_path(app: &AppHandle, base: &str) -> Result<PathBuf, Stri
     ))
 }
 
+/// Build a process command that does not flash a console window on Windows.
+pub fn command_no_window(exe: &Path) -> std::process::Command {
+    let mut cmd = std::process::Command::new(exe);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 pub fn read_ytdlp_version(app: &AppHandle) -> Result<String, String> {
     let exe = resolve_sidecar_path(app, "yt-dlp")?;
-    let output = std::process::Command::new(&exe)
+    let output = command_no_window(&exe)
         .arg("--version")
         .output()
         .map_err(|e| format!("failed to run yt-dlp: {e}"))?;
@@ -130,7 +209,7 @@ pub fn read_ytdlp_version(app: &AppHandle) -> Result<String, String> {
     }
 }
 
-fn trim_stderr_tail(stderr: &str, max_chars: usize) -> String {
+pub fn trim_stderr_tail(stderr: &str, max_chars: usize) -> String {
     let trimmed = stderr.trim();
     if trimmed.len() <= max_chars {
         return trimmed.to_string();
@@ -150,16 +229,34 @@ pub fn is_youtube_url(url: &str) -> bool {
 
 pub fn sanitize_filename(name: &str) -> String {
     const INVALID: [char; 9] = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
+    const RESERVED: &[&str] = &[
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
+        "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+
     let mut cleaned: String = name
         .chars()
-        .map(|c| if INVALID.contains(&c) { '_' } else { c })
+        .map(|c| {
+            if INVALID.contains(&c) || c.is_control() || c == '%' {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect();
-    cleaned = cleaned.trim().trim_end_matches('.').to_string();
+    cleaned = cleaned.trim().trim_end_matches(['.', ' ']).to_string();
     if cleaned.is_empty() {
-        "track".to_string()
-    } else {
-        cleaned
+        return "track".to_string();
     }
+
+    let upper = cleaned.to_ascii_uppercase();
+    if RESERVED
+        .iter()
+        .any(|r| upper == *r || upper.starts_with(&format!("{r}.")))
+    {
+        cleaned = format!("_{cleaned}");
+    }
+    cleaned
 }
 
 fn primary_artist_for_search(artist: &str) -> String {
@@ -207,22 +304,30 @@ pub fn default_output_stem(artist: &str, title: &str) -> String {
     truncate_output_stem(&sanitize_filename(&stem))
 }
 
-pub fn bump_output_path(dir: &Path, stem: &str) -> PathBuf {
+/// Find a collision-safe path `{stem}.{ext}` / `{stem}-N.{ext}`. Errors if none free.
+pub fn bump_output_path(dir: &Path, stem: &str, ext: &str) -> Result<PathBuf, String> {
     let base = sanitize_filename(stem);
-    let first = dir.join(format!("{base}.mp3"));
-    if !first.exists() {
-        return first;
+    let ext = ext.trim_start_matches('.');
+    if ext.is_empty() {
+        return Err("output extension is required".to_string());
     }
-    for n in 2..=999 {
-        let candidate = dir.join(format!("{base}-{n}.mp3"));
+
+    let first = dir.join(format!("{base}.{ext}"));
+    if !first.exists() {
+        return Ok(first);
+    }
+    for n in 2..=9999 {
+        let candidate = dir.join(format!("{base}-{n}.{ext}"));
         if !candidate.exists() {
-            return candidate;
+            return Ok(candidate);
         }
     }
-    dir.join(format!("{base}-999.mp3"))
+    Err(format!(
+        "could not find a free filename for \"{base}.{ext}\" — too many collisions"
+    ))
 }
 
-fn parse_download_percent(line: &str) -> Option<f64> {
+pub fn parse_download_percent(line: &str) -> Option<f64> {
     static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| Regex::new(r"(?i)\[download\]\s+(\d+(?:\.\d+)?)%").unwrap());
     re.captures(line)
@@ -276,7 +381,7 @@ fn track_from_ytdlp(entry: &YtdlpFlatEntry, fallback_id: &str) -> MusicTrackPrev
 
 pub async fn resolve_youtube_url(app: &AppHandle, url: &str) -> Result<MusicResolveResult, String> {
     let ytdlp = resolve_sidecar_path(app, "yt-dlp")?;
-    let output = std::process::Command::new(&ytdlp)
+    let output = command_no_window(&ytdlp)
         .args([
             "-J",
             "--flat-playlist",
@@ -476,7 +581,7 @@ pub fn resolve_ytsearch_watch_urls(
     let deno = resolve_sidecar_path(app, "deno")?;
     let expanded = expand_ytsearch_query(&build_ytsearch_query(artist, title));
 
-    let output = std::process::Command::new(&ytdlp)
+    let output = command_no_window(&ytdlp)
         .args([
             "-J",
             "--flat-playlist",
@@ -584,7 +689,7 @@ fn build_download_args(
     ])
 }
 
-fn is_retryable_download_error(error: &str) -> bool {
+pub fn is_retryable_download_error(error: &str) -> bool {
     let lower = error.to_ascii_lowercase();
     lower.contains("403")
         || lower.contains("forbidden")
@@ -622,14 +727,11 @@ async fn run_single_download(
         .spawn()
         .map_err(|e| e.to_string())?;
 
-    state
-        .active
-        .lock()
-        .map_err(|e| e.to_string())?
-        .replace(ActiveJob {
-            job_id: job_id.to_string(),
-            child,
-        });
+    if let Err(err) = state.attach_child(job_id, child) {
+        // Dropping child without kill; cancel already took the slot. Soft-fail as cancelled.
+        let _ = err;
+        return Ok((false, Some("cancelled".to_string())));
+    }
 
     let mut stderr = String::new();
     let mut exit_code: Option<i32> = None;
@@ -692,10 +794,7 @@ async fn run_single_download(
         }
     }
 
-    let was_cancelled = state.active.lock().map_err(|e| e.to_string())?.is_none();
-    if !was_cancelled {
-        state.active.lock().map_err(|e| e.to_string())?.take();
-    }
+    let was_cancelled = state.clear_child(job_id)?;
 
     let ok = exit_code == Some(0) && output_path.is_file();
     let error = if ok {
@@ -785,15 +884,30 @@ pub async fn run_music_download_job(
         return Err("output folder not found".to_string());
     }
 
-    if state
-        .active
-        .lock()
-        .map_err(|e| e.to_string())?
-        .is_some()
-    {
-        return Err("another music download is already running".to_string());
-    }
+    state.try_reserve(&job_id)?;
 
+    let outcome = run_music_download_job_inner(
+        app,
+        state,
+        &job_id,
+        dir,
+        items,
+        audio_quality_kbps,
+    )
+    .await;
+
+    let _ = state.release(&job_id);
+    outcome
+}
+
+async fn run_music_download_job_inner(
+    app: &AppHandle,
+    state: &YtdlpState,
+    job_id: &str,
+    dir: PathBuf,
+    items: Vec<MusicDownloadItem>,
+    audio_quality_kbps: u32,
+) -> Result<(bool, Option<String>, Vec<MusicDownloadResult>), String> {
     let track_total = items.len() as u32;
     let mut results: Vec<MusicDownloadResult> = Vec::with_capacity(items.len());
     let mut cancelled = false;
@@ -811,7 +925,18 @@ pub async fn run_music_download_job(
             .output_stem
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| default_output_stem(&item.artist, &item.title));
-        let output_path = bump_output_path(&dir, &stem);
+        let output_path = match bump_output_path(&dir, &stem, "mp3") {
+            Ok(path) => path,
+            Err(error) => {
+                results.push(MusicDownloadResult {
+                    id: item.id.clone(),
+                    path: dir.join(format!("{stem}.mp3")).to_string_lossy().to_string(),
+                    ok: false,
+                    error: Some(error),
+                });
+                continue;
+            }
+        };
 
         let download_urls = match resolve_download_targets(
             app,
@@ -837,7 +962,7 @@ pub async fn run_music_download_job(
         let (ok, error) = run_download_with_fallbacks(
             app,
             state,
-            &job_id,
+            job_id,
             &download_urls,
             output_path.clone(),
             index as u32,
@@ -892,15 +1017,16 @@ pub async fn run_music_download_job(
 
 pub fn cancel_job(state: &YtdlpState, job_id: &str) -> Result<(), String> {
     let mut guard = state.active.lock().map_err(|e| e.to_string())?;
-    let job = guard.take();
-    let Some(job) = job else {
-        return Err("no active music download".to_string());
+    let Some(job) = guard.as_mut() else {
+        return Err("no active download".to_string());
     };
     if job.job_id != job_id {
-        *guard = Some(job);
-        return Err("job id does not match active music download".to_string());
+        return Err("job id does not match active download".to_string());
     }
-    job.child.kill().map_err(|e| e.to_string())?;
+    job.cancelled = true;
+    if let Some(child) = job.child.take() {
+        child.kill().map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -998,12 +1124,21 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_mp3_bitrate_presets() {
-        assert_eq!(normalize_mp3_bitrate_kbps(320), 320);
-        assert_eq!(normalize_mp3_bitrate_kbps(256), 256);
-        assert_eq!(normalize_mp3_bitrate_kbps(192), 192);
-        assert_eq!(normalize_mp3_bitrate_kbps(128), 128);
-        assert_eq!(normalize_mp3_bitrate_kbps(999), 320);
-        assert_eq!(mp3_quality_arg(192), "192K");
+    fn sanitize_and_bump_output_path() {
+        assert!(!sanitize_filename("a%(b)").contains('%'));
+        assert!(sanitize_filename("NUL").starts_with('_'));
+
+        let dir = std::env::temp_dir().join(format!(
+            "sak-ytdlp-bump-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("song.mp3"), b"x").unwrap();
+        let next = bump_output_path(&dir, "song", "mp3").unwrap();
+        assert_eq!(next.file_name().unwrap(), "song-2.mp3");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -136,29 +136,25 @@ policy). All operations stay local; originals are never overwritten by default.
 - OCR for scanned PDFs
 - Linearize / web-optimize
 
-### 7. YouTube downloader
-Paste a link, choose what to save, download locally. No accounts, no uploads — only
-pulls media to disk.
+### 7. YouTube downloader ✅ *(v1 done 2026-09-24)*
+Paste a link, preview metadata, download locally as MP4. No accounts, no uploads —
+only pulls media to disk.
 
-- **Intake** — paste a YouTube URL (watch, Shorts, or `youtu.be`). Resolve metadata
-  immediately: title, channel, duration, thumbnail, and available formats.
-- **Download mode**
-  - **Video** — pick resolution / container from what’s available (e.g. best,
-    1080p, 720p, …). Prefer muxed streams when present; otherwise download video +
-    audio and mux locally (FFmpeg sidecar).
-  - **Audio only** — extract/download best audio and save as MP3 or M4A (user choice),
-    with a sensible bitrate default and optional quality picker.
-- **Output** — collision-safe filename derived from the video title (sanitized for
-  Windows); default to a remembered download folder or a one-off picker. Never
-  overwrite without warning.
+**v1 (shipped)**
+- **Intake** — paste a YouTube URL (watch, Shorts, live, embed, or `youtu.be`).
+  Resolve metadata: title, channel, duration, thumbnail.
+- **Download** — best available video+audio, muxed/remuxed to **MP4** via bundled
+  yt-dlp + Deno + FFmpeg. Single video only (`--no-playlist`).
+- **Output** — collision-safe filename from the sanitized title; remembered download
+  folder. Never overwrite.
 - **Progress** — download progress bar, cancel, and “reveal in Explorer” when done.
-- **Batch (later)** — paste multiple URLs or a playlist link; queue with per-item
-  mode (video vs audio) and a summary when finished.
 
 **YouTube downloader backlog (parked)**
+- Format / resolution picker (1080p, 720p, …) ✅ *(shipped as quality presets)*
+- Audio-only mode (MP3 / M4A)
 - Playlist / channel batch with selective checkboxes
-- Subtitle / caption download (optional sidecar `.srt` / `.vtt`)
-- Remember last format + audio-only preference
+- Subtitle / caption download ✅ *(sidecar `.srt`; manual + auto; all langs except live chat)*
+- Remember last format + audio-only preference ✅ *(quality + subs remembered)*
 - Clipboard watch: offer to paste when a YouTube URL is on the clipboard
 - Rate-limit / retry UX when YouTube throttles or changes extractors
 
@@ -342,9 +338,10 @@ SAK/
 12. **Music downloader** ✅ *(done 2026-08-14)* — paste YouTube / Spotify URL → resolve
     tracks → download MP3 320 kbps via bundled yt-dlp + Deno + FFmpeg; Spotify albums /
     playlists need optional local Spotify API credentials; collision-safe output folder.
-13. **YouTube downloader** — paste URL → metadata preview → download video (mux via
-  FFmpeg when needed) or audio-only (MP3 / M4A); remembered folder, progress +
-  cancel. Playlist/batch later. *(yt-dlp sidecar shared with music downloader.)*
+13. **YouTube downloader** ✅ *(v1 done 2026-09-24)* — paste URL → metadata preview →
+    download best video as MP4 (mux/remux via FFmpeg); remembered folder, progress +
+    cancel. Format picker / audio-only / playlist batch parked.
+    *(yt-dlp sidecar shared with music downloader.)*
 14. **Text converter** — paste/type text, pick a transform (case, reverse/upside-down,
   Unicode “fonts”, etc.), live output + copy. Pure frontend; no Rust needed for v1.
 15. **Grow** — add tools from the parking lot as needs come up.

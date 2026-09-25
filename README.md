@@ -9,18 +9,19 @@ Local-first Windows desktop toolbox: one app, many small tools. A digital Swiss 
 
 | Category | Tools                                                          |
 | -------- | -------------------------------------------------------------- |
-| Video    | Encoder, remux, audio convert, size reducer, clip trimmer      |
+| Video    | Encoder, remux, audio convert, size reducer, clip trimmer, YouTube downloader |
 | Files    | Extension changer                                              |
 | Image    | ICO converter, image cropper                                   |
 | PDF      | Open / edit / merge / convert / resize, PDF→EPUB, PDF→Markdown |
 | Audio    | Music downloader (YouTube / Spotify)                           |
 
+YouTube download tools are for personal use with content you’re allowed to save; using them may violate [YouTube’s Terms of Service](https://www.youtube.com/t/terms) — you’re responsible for how you use them.
 
 ## Setup
 
 ```bash
 npm install
-node scripts/setup-music-tools.mjs   # yt-dlp + Deno (music downloader)
+node scripts/setup-music-tools.mjs   # yt-dlp + Deno (music + YouTube downloaders)
 node scripts/setup-calibre.mjs       # Calibre (PDF→EPUB / Markdown)
 npm run tauri dev                    # development
 npm run tauri build                  # production installer
